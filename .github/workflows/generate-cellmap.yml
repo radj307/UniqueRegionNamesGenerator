@@ -1,0 +1,118 @@
+
+name: Generate CellMap
+
+on:
+  push:
+    tags: '*.*.*'
+  workflow_dispatch:
+    inputs:
+      source-image:
+        description:  'Path to the image file to use as input. Must be relative to github.workspace'
+        default:      'ParseImage/ParseImage/images/cellmap.png'
+        type:         string
+      partition-size:
+        description:  'This is passed as the value of the --dim argument to the image parser.'
+        default:      '100:100'
+        type:         string
+      threshold:
+        description:  'A number from (0 - 100) that determines the percentage of matching pixels a region must have in a cell in order to be included in the region map for that cell.'
+        default:      '0.1'
+        type:         string
+
+jobs:
+  generate-cellmap:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast:    true
+
+    steps:
+      # Check out the repository
+    - uses: actions/checkout@v3
+      with:
+        submodules:   recursive
+        lfs:          true
+        ref:          dev
+
+    - name: 'Setup OpenCV'
+      run:  |
+            apt-get update && apt-get install -y cmake gcc-10 g++-10 wget unzip
+            cd '${{github.workspace}}/ParseImage'
+            wget -O opencv.zip https://github.com/opencv/opencv/archive/4.x.zip
+            unzip opencv.zip && cd 'opencv-4.x'
+            mkdir -p build && cd build
+            cmake ..
+            cmake --build .
+            cmake --install . --config Release
+      
+      # Set up ninja
+    - uses: seanmiddleditch/gha-setup-ninja@master
+    
+
+    - name:   Configure CMake
+      run:    cmake -B 'build' -S . -DCMAKE_BUILD_TYPE=Release -DOpenCV_DIR=opencv-4.x -G Ninja
+      env:
+        CC:   gcc-10
+        CXX:  g++-10
+
+    - name: Build
+      run:  cmake --build '${{github.workspace}}/ParseImage' --config Release
+      
+    - name: Generate Map
+      run:  |
+            cd ${{github.workspace}}/ParseImage/build/
+
+    - name:   Create Archive
+      if:     ${{ runner.os != 'Windows' }}
+      run:    |
+              cd "${{github.workspace}}/build/${{env.PROJECT_NAME}}"
+              zip -T9 "${{env.PROJECT_NAME}}-$(./${{env.PROJECT_NAME}} -vq)-${{runner.os}}.zip" "${{env.BINARY_NAME || env.PROJECT_NAME}}"
+      shell:  bash
+      
+    # Upload Artifact
+    - name:   Upload Artifact
+      uses:   actions/upload-artifact@v2
+      with:
+        name: latest-${{runner.os}}
+        path: '${{github.workspace}}/build/${{env.PROJECT_NAME}}/*.zip'
+#:create-binaries
+      
+  create-release:
+    needs: create-binaries      
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1    
+    
+    steps:
+    # Download Artifacts
+    - name: 'Download Build Artifacts'
+      uses: actions/download-artifact@v2
+            
+    # Retrieve the latest git tag if this was triggered by a tag
+    - name: 'Get Release Tag'
+      id:   get_version
+      run:  |
+            if [ "${{github.event.inputs.tag}}" == "" ]; then TAG="${GITHUB_REF/refs\/tags\//}"; else TAG="${{github.event.inputs.tag}}" ; fi
+            echo ::set-output name=VERSION::$TAG
+            echo ::set-output name=NAME::"Release $TAG"
+      
+    # Stage downloaded build artifacts for deployment
+    - name:   'Stage Archives'
+      run:    |
+              cd ${{github.workspace}}
+              if mv ./latest-*/* ./ ; then ls -lAgh ; else ls -lAghR ; fi
+      shell:  bash
+      
+    # Upload Release
+    - name: 'Create Release'
+      #if:   ${{ github.event_name == 'workflow_dispatch' }}
+      uses: softprops/action-gh-release@v1
+      with:
+        draft:                    ${{ github.event.inputs.is-draft || true }}
+        prerelease:               ${{ github.event.inputs.is-prerelease || false }}
+        tag_name:                 ${{ steps.get_version.outputs.VERSION }}
+        name:                     ${{ steps.get_version.outputs.NAME }}
+        generate_release_notes:   ${{ github.event.inputs.autogenerate || true }}
+        body:                     ${{ github.event.inputs.body || '' }}
+        fail_on_unmatched_files:  true
+        files:                    ${{github.workspace}}/*.zip
+#:create-release
