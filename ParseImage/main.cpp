@@ -1,7 +1,9 @@
 #include "LogRedirect.hpp"
-#include "types.hpp"
 #include "output_operators.hpp"
 #include "PartitionStats.hpp"
+#include "config.hpp"
+#include "ImageWrapper.hpp"
+#include "RegionStatsMap.hpp"
 
 #include <TermAPI.hpp>
 #include <ParamsAPI2.hpp>
@@ -14,25 +16,25 @@
 
 /**
  * @brief				Parse a given string by splitting it with one of the given delimiters, then converting both sides to integral types.
- * @tparam RetType		Either a `Point` or `Size` type.
+ * @tparam RetType		Either a `cv::Point` or `cv::Size` type.
  * @param s				Input String
  * @param seperators	List of characters that are valid delimiters.
  * @returns				RetType
  */
-template<var::any_same<Point, Size> RetType>
+template<var::any_same<cv::Point, cv::Size> RetType>
 RetType parse_string(const std::string& s, const std::string& seperators = ":,")
 {
 	const auto& [xstr, ystr] { str::split(s, seperators) };
 	if (std::all_of(xstr.begin(), xstr.end(), isdigit) && std::all_of(ystr.begin(), ystr.end(), isdigit))
-		return RetType{ str::stoll(xstr), str::stoll(ystr) };
+		return RetType{ str::stoi(xstr), str::stoi(ystr) };
 	else throw make_exception("Cannot parse string '", s, "' into a valid pair of integrals!");
 }
 
 
 /// @brief	Translates index coordinates (origin 0,0 top-left) to cell coordinates (origin -74, 49 top-left)
-constexpr Point offsetCellCoordinates(const Point& p, const Point& pMin = { 0, 0 }, const Point& pMax = { 149, 99 })
+cv::Point offsetCellCoordinates(const cv::Point& p, const cv::Point& pMin = { 0, 0 }, const cv::Point& pMax = { 149, 99 })
 {
-	const Point cellMin{ -74, 49 }, cellMax{ 75, -50 };
+	const cv::Point cellMin{ -74, 49 }, cellMax{ 75, -50 };
 
 	const auto& translateAxis{ [](const auto& v, const auto& oldMin, const auto& oldMax, const auto& newMin, const auto& newMax) {
 		if (oldMin == oldMax || newMin == newMax)
@@ -44,32 +46,17 @@ constexpr Point offsetCellCoordinates(const Point& p, const Point& pMin = { 0, 0
 	} };
 
 	return{
-		translateAxis(p.x(), pMin.x(), pMax.x(), cellMin.x(), cellMax.x()),
-		translateAxis(p.y(), pMin.y(), pMax.y(), cellMin.y(), cellMax.y())
+		translateAxis(p.x, pMin.x, pMax.x, cellMin.x, cellMax.x),
+		translateAxis(p.y, pMin.y, pMax.y, cellMin.y, cellMax.y)
 	};
 }
 
-inline ColorMap ReadColorMap(file::INI const& ini) noexcept(false)
+inline ColorMap buildColorMap(RegionVec const& regions)
 {
-	if (!ini.check("colormap"))
-		throw make_exception("Failed to locate the '[colormap]' section!");
-
-	const file::INI::INIContainer::SectionContent& section{ ini.get_section("colormap") };
-
-	ID lastID{ 0 };
-
 	ColorMap map;
-	for (const auto& [key, val] : section) {
-		std::string hexstr{ file::ini::to_string(val) };
-
-		if (hexstr.size() == 6ull && std::all_of(hexstr.begin(), hexstr.end(), color::ishexnum))
-			map.insert_or_assign(color::hex_to_rgb<unsigned char>(std::move(hexstr), { 0, 255 }), Region{ lastID++, key });
-		else
-			std::clog << term::get_warn() << "Skipping key '" << key << "' because '" << hexstr << "' isn't a valid hexadecimal color code!\n";
-	}
+	for (const auto& it : regions) map.insert_or_assign(it.color, it);
 	return map;
 }
-
 
 int main(const int argc, char** argv)
 {
@@ -102,10 +89,10 @@ int main(const int argc, char** argv)
 				;
 		}
 
-		file::INI ini;
+		file::MINI ini;
 
 		if (const auto& path{ myPath / "regions.ini" }; file::exists(path)) {
-			std::clog << "Reading region color data from " << path << ".\n";
+			std::clog << "Reading region color data from '" << path.generic_string() << "'.\n";
 			ini.read(path);
 		}
 
@@ -113,7 +100,7 @@ int main(const int argc, char** argv)
 			if (!file::exists(it))
 				throw make_exception("Filepath '", it, "' doesn't exist!");
 			else {
-				std::clog << "Reading region color data from " << it << ".\n";
+				std::clog << "Reading region color data from '" << it << "'.\n";
 				ini.read(it);
 			}
 		}
@@ -121,7 +108,8 @@ int main(const int argc, char** argv)
 		if (ini.empty())
 			throw make_exception("Failed to retrieve any valid data from the provided INI config files!");
 
-		const auto& colormap{ ReadColorMap(ini) };
+		const auto& regionMap{ cfg::getRegions(ini) };
+		const ColorMap colormap{ buildColorMap(regionMap) };
 
 		if (const auto& fileArg{ args.typegetv_any<opt::Flag, opt::Option>('f', "file") }; fileArg.has_value()) {
 			std::filesystem::path path{ fileArg.value() };
@@ -149,15 +137,15 @@ int main(const int argc, char** argv)
 				streams.redirect(StandardStream::STDOUT | StandardStream::STDERR, logpath.generic_string());
 				std::clog << "Redirected " << color::setcolor::red << "STDOUT" << color::setcolor::reset << " & " << color::setcolor::red << "STDERR" << color::setcolor::reset << " to logfile:  " << logpath << '\n';
 
-				if (Image img{ path.generic_string() }; img.loaded()) {
+				if (ImageWrapper img{ path.generic_string() }; img.loaded()) {
 					std::clog << "Successfully loaded image file '" << path << '\'' << std::endl;
 
 					if (const auto& dimArg{ args.typegetv_any<opt::Flag, opt::Option>('d', "dim") }; dimArg.has_value()) {
-						Size partSize = parse_string<Size>(dimArg.value(), ":,");
-						std::clog << "Partition Size:  [ " << partSize.width() << " x " << partSize.height() << " ]\n";
+						cv::Size partSize = parse_string<cv::Size>(dimArg.value(), ":,");
+						std::clog << "Partition cv::Size:  [ " << partSize.width << " x " << partSize.height << " ]\n";
 
-						const length& cols{ img.image.cols / partSize.width() };
-						const length& rows{ img.image.rows / partSize.height() };
+						const int& cols{ img.image.cols / partSize.width };
+						const int& rows{ img.image.rows / partSize.height };
 
 						bool display_each{ args.checkopt("display") };
 						const std::string windowName{ "Display" };
@@ -168,20 +156,20 @@ int main(const int argc, char** argv)
 						RegionStatsMap regionStats;
 
 						HoldMap vec;
-						vec.reserve(cols * rows);
+						vec.reserve(static_cast<size_t>(cols * rows));
 						size_t i = 0;
 
 						const auto t_start{ CLK::now() };
 
-						for (length y{ 0 }; y < rows; ++y) {
+						for (int y{ 0 }; y < rows; ++y) {
 							unsigned row_count{ 0u };
-							for (length x{ 0 }; x < cols; ++x, ++i) {
-								const auto& rect{ Rectangle(x * partSize.width(), y * partSize.height(), partSize.width(), partSize.height()) };
+							for (int x{ 0 }; x < cols; ++x, ++i) {
+								const auto& rect{ cv::Rect(x * partSize.width, y * partSize.height, partSize.width, partSize.height) };
 								auto part{ img.image(rect) };
-								const auto& cellPos{ offsetCellCoordinates(Point{ x, y }) };
+								const auto& cellPos{ offsetCellCoordinates(cv::Point{ x, y }) };
 								std::clog << "Processing Partition #" << color::setcolor::green << i << color::setcolor::reset << '\n'
 									<< "  Partition Index:   ( " << color::setcolor::yellow << x << color::setcolor::reset << ", " << color::setcolor::yellow << y << color::setcolor::reset << " )\n"
-									<< "  Cell Coordinates:  ( " << color::setcolor::yellow << cellPos.x() << color::setcolor::reset << ", " << color::setcolor::yellow << cellPos.y() << color::setcolor::reset << " )\n";
+									<< "  Cell Coordinates:  ( " << color::setcolor::yellow << cellPos.x << color::setcolor::reset << ", " << color::setcolor::yellow << cellPos.y << color::setcolor::reset << " )\n";
 								if (display_each) {
 									cv::imshow(windowName, part); // display the image in the window
 									cv::waitKey(windowTimeout);

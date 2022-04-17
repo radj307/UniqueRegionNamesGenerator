@@ -1,5 +1,7 @@
 #pragma once
-#include "types.hpp"
+#include "Region.hpp"
+#include "config.hpp"
+#include "TMap.hpp"
 
 #include <color-transform.hpp>
 
@@ -15,7 +17,7 @@ inline color::RGB<uchar> Vec3b_to_RGB(cv::Vec3b&& bgr) { return{ std::move(bgr[2
 struct PartitionStats {
 	using count = unsigned;
 private:
-	Size partSize{ 0, 0 };
+	cv::Size partSize{ 0, 0 };
 	std::map<Region, count> pxCount;
 	bool is_valid{ false };
 
@@ -28,7 +30,7 @@ private:
 	{
 		PartitionStats stats;
 
-		if (stats.partSize = { std::forward<cv::Mat>(part).cols, std::forward<cv::Mat>(part).rows }; stats.partSize.width() > 0 && stats.partSize.height() > 0)
+		if (stats.partSize = { std::forward<cv::Mat>(part).cols, std::forward<cv::Mat>(part).rows }; stats.partSize.width > 0 && stats.partSize.height > 0)
 			stats.is_valid = true;
 		else return stats;
 
@@ -39,7 +41,7 @@ private:
 
 		for (int y{ 0 }; y < rows; ++y) {
 			for (int x{ 0 }; x < cols; ++x) {
-				RGB color{ Vec3b_to_RGB(std::move(std::forward<cv::Mat>(part).at<cv::Vec3b>(Point{ x, y }))) };
+				RGB color{ Vec3b_to_RGB(std::move(std::forward<cv::Mat>(part).at<cv::Vec3b>(cv::Point{ x, y }))) };
 
 				if (const auto& mapped{ colormap.find(color) }; mapped != colormap.end())
 					++stats.pxCount[mapped->second];
@@ -106,7 +108,7 @@ public:
 	 * @param region	The `Region` to check for.
 	 * @returns			float between 0.0 (0%) and 1.0 (100%)
 	 */
-	float getPercentage(Region const& region) const { return static_cast<float>(getCount(region)) / static_cast<float>(partSize.width() * partSize.height()); }
+	float getPercentage(Region const& region) const { return static_cast<float>(getCount(region)) / static_cast<float>(partSize.width * partSize.height); }
 
 	/**
 	 * @brief				Get the regions present in this partition that are above a specified threshold.
@@ -117,7 +119,7 @@ public:
 	{
 		if (threshold < 0.0f || threshold > 1.0f)
 			throw make_exception("Invalid threshold value '", threshold, "' is out-of-range: ( 0.0 - 1.0 )!");
-		const float totalPixelCount{ static_cast<float>(partSize.width() * partSize.height()) };
+		const float totalPixelCount{ static_cast<float>(partSize.width * partSize.height) };
 		std::vector<Region> vec;
 		vec.reserve(pxCount.size());
 		for (const auto& [region, count] : pxCount)
@@ -142,138 +144,3 @@ public:
 	}
 };
 
-struct RegionStats : std::vector<Point> {
-	using base = std::vector<Point>;
-	using base::base;
-
-	std::optional<position> getTopYPos() const
-	{
-		std::optional<position> top;
-		for (const auto& it : *this) {
-			if (!top.has_value())
-				top = it.y();
-			else if (it.y() > top.value())
-				top = it.y();
-		}
-		return top;
-	}
-	std::optional<position> getBottomYPos() const
-	{
-		std::optional<position> top;
-		for (const auto& it : *this)
-			if (!top.has_value() || it.y() < top.value())
-				top = it.y();
-		return top;
-	}
-
-	Point get_first_at(const position& y_pos) const
-	{
-		std::optional<Point> min;
-		for (const auto& it : *this) {
-			const auto& [x, y] { static_cast<std::pair<position, position>>(it) };
-			if (y == y_pos && (!min.has_value() || x < min.value().x()))
-				min = it;
-			else continue;
-		}
-		return min.value(); // throw exception if failed
-	}
-	Point get_last_at(const position& y_pos) const
-	{
-		std::optional<Point> max;
-		for (const auto& it : *this) {
-			const auto& [x, y] { static_cast<std::pair<position, position>>(it) };
-			if (y == y_pos && (!max.has_value() || x > max.value().x()))
-				max = it;
-			else continue;
-		}
-		return max.value(); // throw exception if failed
-	}
-
-	constexpr bool contains(const Point& p) const
-	{
-		return std::any_of(begin(), end(), [&p](Point const& pos) -> bool { return pos == p; });
-	}
-
-	RegionStats filter_region_area() const
-	{
-		std::vector<Point> vecFirst, vecLast;
-
-		const auto& top{ getTopYPos().value_or(0) }, bottom{ getBottomYPos().value_or(0) };
-
-		vecFirst.reserve(top - bottom);
-		vecLast.reserve(top - bottom);
-
-		for (position i{ bottom }; i <= top; ++i) {
-			const auto& first{ get_first_at(i) }, last{ get_last_at(i) };
-			vecFirst.emplace_back(first);
-			vecLast.emplace_back(last);
-		}
-
-		using iter = std::vector<Point>::const_iterator;
-
-		const auto& isInnerPoint{ [](const iter& pos, const iter& first, const iter& last) -> bool {
-			if (std::distance(pos, first) == 0ull || std::distance(pos, last) <= 1ull)
-				return false;
-			const auto& prev{ pos - 1 }, & next{ pos + 1 };
-			return pos->x() == prev->x() && pos->x() == next->x();
-		} };
-
-		// remove unnecessary points from the vector of first points
-		for (auto it{ vecFirst.begin() }; it != vecFirst.end();) {
-			if (isInnerPoint(it, vecFirst.begin(), vecFirst.end()))
-				it = vecFirst.erase(it);
-			if (it != vecFirst.end()) ++it;
-		}
-		vecFirst.shrink_to_fit();
-
-		// remove unnecessary points from the vector of last points
-		for (auto it{ vecLast.begin() }; it != vecLast.end();) {
-			if (isInnerPoint(it, vecLast.begin(), vecLast.end()))
-				it = vecLast.erase(it);
-			if (it != vecLast.end()) ++it;
-		}
-		vecLast.shrink_to_fit();
-
-		RegionStats edge;
-		edge.reserve(vecFirst.size() + vecLast.size());
-		// iterate forwards through first points
-		const auto& vecFirstHalfSize{ vecFirst.size() / 2ull }; //< used to calculate padding
-		for (auto it{ vecFirst.begin() }, end{ vecFirst.end() }; it != end; ++it) {
-			position y_offset{ 0 };
-			// if we're in the first half of the vector, shift all Y axis points up by 1
-			if (std::distance(it, vecFirst.begin()) < vecFirstHalfSize)
-				--y_offset;
-			// else shift all Y axis points down by 1
-			else ++y_offset;
-			// shift all first points left by 1
-			edge.emplace_back(Point{ it->x() - 1, it->y() + y_offset });
-		}
-		const auto& vecLastHalfSize{ vecLast.size() / 2ull };
-		// iterate backwards through last points to complete polygon
-		for (auto it{ vecLast.rbegin() }, end{ vecLast.rend() }; it != end; ++it) {
-			position y_offset{ 0 };
-			// if we're in the first half of the vector, shift all Y axis points up by 1
-			if (std::distance(it, vecLast.rbegin()) < vecLastHalfSize)
-				++y_offset;
-			// else shift all Y axis points down by 1
-			else --y_offset;
-			// shift all last points right by 1
-			edge.emplace_back(Point{ it->x() + 1, it->y() + y_offset });
-		}
-		edge.shrink_to_fit();
-		return edge;
-	}
-};
-
-struct RegionStatsMap : std::map<Region, RegionStats> {
-	using base = std::map<Region, RegionStats>;
-	using base::base;
-
-	RegionStats get(const ID& regionID) const
-	{
-		for (const auto& [region, stats] : *this)
-			if (region.ID() == regionID)
-				return stats;
-		throw make_exception("No region with ID ", regionID, " was found!");
-	}
-};

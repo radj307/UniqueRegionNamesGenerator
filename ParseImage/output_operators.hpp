@@ -1,31 +1,13 @@
 #pragma once
-#include "types.hpp"
 #include "PartitionStats.hpp"
+#include "RegionStats.hpp"
+#include "RegionStatsMap.hpp"
 
 #include <strmath.hpp>
 
-inline std::ostream& operator<<(std::ostream& os, const std::vector<Region>& regionList)
+inline std::ostream& operator<<(std::ostream& os, const cv::Point& p)
 {
-	os << "[ ";
-	for (auto it{ regionList.begin() }, endit{ regionList.end() }; it != endit; ++it) {
-		os << '"' << *it << '"';
-		if (std::distance(it, regionList.end()) > 1ull)
-			os << ", ";
-	}
-	return os << " ]";
-}
-
-// file writing operators:
-inline std::ostream& operator<<(std::ostream& os, const HoldMap& holdmap)
-{
-	for (const auto& [pos, regions] : holdmap)
-		os << '(' << pos.x() << ',' << pos.y() << ") = " << regions << '\n';
-	return os;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const Point& p)
-{
-	return os << p.x() << "," << p.y();
+	return os << p.x << "," << p.y;
 }
 
 inline std::ostream& operator<<(std::ostream& os, const RegionStats& stats)
