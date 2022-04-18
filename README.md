@@ -47,7 +47,9 @@ That data is then used by UniqueRegionNamesPatcher to create the `esp` file.
 You'll need to choose a unique RGB color value for each region you want to add.  
 The colors cannot match any lines or numbers already present on the map!
 
- 1. Draw the regions on the map using your chosen colors, adding each new region/color to an `ini` file in the following format:
+ 1. Draw the regions on the map using your chosen colors.  
+    _When drawing the map, be sure to remove any transparent pixels! Only pixels with RGB values matching those in the INI EXACTLY are valid._  
+    Add each new region/color to an `ini` file in the following format:
 ```ini
 ; EditorID  (required)
 ; This is the 'header' tag, which defines the editor ID. All setter lines belong to the header they are located in.
