@@ -63,7 +63,7 @@ int main(const int argc, char** argv)
 	using CLK = std::chrono::high_resolution_clock;
 
 	try {
-		opt::ParamsAPI2 args{ argc, argv, 'f', "file", 'd', "dim", 'T', "timeout", 'o', "out", 't', "threshold", 'i', "ini" };
+		opt::ParamsAPI2 args{ argc, argv, 'f', "file", 'd', "dim", 'T', "timeout", 'o', "out", 't', "threshold", 'i', "ini", 'w', "worldspace" };
 		env::PATH PATH;
 		const auto& [myPath, myName] { PATH.resolve_split(argv[0]) };
 
@@ -74,18 +74,18 @@ int main(const int argc, char** argv)
 				<< "  " << std::filesystem::path(myName).replace_extension().generic_string() << " <OPTIONS>" << '\n'
 				<< '\n'
 				<< "OPTIONS:\n"
-				<< "  -h  --help            Shows this usage guide.\n"
-				<< "  -f  --file <PATH>     Specify an image to load.\n"
-				<< "  -o  --out <PATH>      Specify a filepath to export the results to. Defaults to the name of the image\n"
-				<< "                         file with the extension '.ini', in the current working directory.\n"
-				<< "  -d  --dim <X:Y>       Specify the image partition dimensions that the input image is divided into.\n"
-				<< "      --display         Displays each partition in a window while parsing.\n"
-				<< "  -T  --timeout <ms>    When '--display' is specified, closes the display window after '<ms>' milliseconds.\n"
-				<< "                         a value of 0 will wait forever, which is the default behaviour.\n"
-				<< "  -t  --threshold <%>   A percentage in the range (0 - 100) that determines the minimum number of matching\n"
-				<< "                         pixels that a partition must have in order for it to be considered part of a region.\n"
-				<< "                         Setting this to `0` will NOT add any regions that don't have at least 1 pixel present!"
-				<< " -i  --ini <PATH>       Specify the location of the INI config file. Default is the current working directory, named 'regions.ini'\n"
+				<< "  -h  --help              Shows this usage guide.\n"
+				<< "  -f  --file <PATH>       Specify an image to load.\n"
+				<< "  -o  --out <PATH>        Specify a directory to export the results to.\n"
+				<< "  -d  --dim <X:Y>         Specify the image partition dimensions that the input image is divided into.\n"
+				<< "      --display           Displays each partition in a window while parsing.\n"
+				<< "  -T  --timeout <ms>      When '--display' is specified, closes the display window after '<ms>' milliseconds.\n"
+				<< "                           a value of 0 will wait forever, which is the default behaviour.\n"
+				<< "  -t  --threshold <%>     A percentage in the range (0 - 100) that determines the minimum number of matching\n"
+				<< "                           pixels that a partition must have in order for it to be considered part of a region.\n"
+				<< "                           Setting this to `0` will NOT add any regions that don't have at least 1 pixel present!"
+				<< " -i  --ini <PATH>         Specify the location of the INI config file. Default is the current working directory, named 'regions.ini'\n"
+				<< " -w  --worldspace <NAME>  Specify the filename (not extension) of the output files.\n"
 				;
 		}
 
@@ -202,14 +202,24 @@ int main(const int argc, char** argv)
 
 						vec.shrink_to_fit();
 
-						std::filesystem::path outpath{ path.filename() };
-						outpath.replace_extension(".ini");
+						std::filesystem::path outpath{ myPath };
+
 						if (const auto& outArg{ args.typegetv_any<opt::Flag, opt::Option>('o', "out") }; outArg.has_value())
 							outpath = outArg.value(); // override the output path
-						if (file::write(outpath, "[Regions]\n", regionStats, "\n[HoldMap]\n", vec)) {
-							std::clog << "Successfully saved the lookup matrix to " << outpath << std::endl;
-						}
-						else throw make_exception("Failed to write to output file ", outpath, "!");
+
+						if (!std::filesystem::is_directory(outpath))
+							throw make_exception("Invalid directory name: '", outpath.generic_string(), '\'');
+
+						std::string worldspaceName{ args.typegetv_any<opt::Flag, opt::Option>('w', "worldspace").value_or("worldspace") };
+
+						std::filesystem::path outRegionData{ outpath / (worldspaceName + ".region.txt") }, outMapData{ outpath / (worldspaceName + ".map.txt") };
+						if (ini.write(outRegionData))
+							std::clog << "Successfully saved region data to '" << color::setcolor::yellow << outRegionData.generic_string() << color::setcolor::reset << '\'' << std::endl;
+						else std::clog << term::get_error() << "Failed to write region data to '" << color::setcolor::yellow << outRegionData.generic_string() << color::setcolor::reset << '\'' << std::endl;
+
+						if (file::write(outMapData, "[Regions]\n", regionStats, "\n[HoldMap]\n", vec))
+							std::clog << "Successfully saved the lookup matrix to '" << color::setcolor::yellow << outMapData.generic_string() << color::setcolor::reset << '\'' << std::endl;
+						else std::clog << term::get_error() << "Failed to write map data to '" << color::setcolor::yellow << outMapData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 
 						if (display_each)
 							cv::destroyWindow(windowName);
