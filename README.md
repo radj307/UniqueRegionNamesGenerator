@@ -25,7 +25,7 @@ Image parser utility used by the Unique Region Names Synthesis patcher to genera
 This program uses images to generate the configurations used by UniqueRegionNamesPatcher.  
 It does this by partitioning an image into cells, and comparing the color values of each pixel in that cell to each known region's color values. _(specified using an `ini` file.)_  
 
-This is part of the source image used for the Tamriel worldspace:  
+This is part of the source image used for the Tamriel worldspace: _(Incomplete as of this image)_  
 ![image](https://user-images.githubusercontent.com/1927798/163854632-59bccec2-0b7f-4ab0-9e35-705c675b3ebb.png)  
 ![image](https://user-images.githubusercontent.com/1927798/163854701-06edfe6f-818f-48ed-b194-65636676f949.png)  
 Each 100px by 100px red box is 1 exterior cell.  
