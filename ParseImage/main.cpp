@@ -217,7 +217,7 @@ int main(const int argc, char** argv)
 							std::clog << "Successfully saved region data to '" << color::setcolor::yellow << outRegionData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 						else std::clog << term::get_error() << "Failed to write region data to '" << color::setcolor::yellow << outRegionData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 
-						if (file::write(outMapData, "[Regions]\n", regionStats, "\n[HoldMap]\n", vec))
+						if (file::write(outMapData, "[RegionAreas]\n", regionStats, "\n[HoldMap]\n", vec))
 							std::clog << "Successfully saved the lookup matrix to '" << color::setcolor::yellow << outMapData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 						else std::clog << term::get_error() << "Failed to write map data to '" << color::setcolor::yellow << outMapData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 

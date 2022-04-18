@@ -42,3 +42,4 @@ _ReSharper*/
 #Nuget packages folder
 packages/
 out/
+/ParseImage/images/cellmap.png
