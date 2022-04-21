@@ -27,7 +27,12 @@ public:
 	RGB color;
 
 	Region() : id{ lastID++ } {}
-	Region(std::string const& edid, std::string const& mapName, RGB const& rgb, ushort const& priority) : id{ lastID++ }, editorID{ edid }, mapName{ mapName }, color{ rgb }, priority{ priority } {}
+	Region(std::string const& edid, std::string const& mapName, RGB const& rgb, ushort const& priority) :
+		id{ lastID++ },
+		editorID{ edid },
+		mapName{ mapName },
+		color{ rgb },
+		priority{ priority } {}
 
 	ID getID() const { return id; }
 	std::string Name() const { return editorID; }

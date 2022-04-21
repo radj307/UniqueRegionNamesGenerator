@@ -51,11 +51,44 @@ cv::Point offsetCellCoordinates(const cv::Point& p, const cv::Point& pMin = { 0,
 	};
 }
 
-inline ColorMap buildColorMap(RegionVec const& regions)
+inline std::ostream& operator<<(std::ostream& os, const RGB& rgb)
 {
-	ColorMap map;
-	for (const auto& it : regions) map.insert_or_assign(it.color, it);
-	return map;
+	return os << str::fromBase10(rgb.r(), 16) << str::fromBase10(rgb.g(), 16) << str::fromBase10(rgb.b(), 16);
+}
+
+inline void ValidateRegionVec(RegionVec const& regionVec)
+{
+	std::map<RGB, std::vector<Region>> color_errors;
+	std::map<std::string, std::vector<Region>> name_errors;
+
+	for (size_t i{ 0ull }; i < regionVec.size(); ++i) {
+		const auto& here{ regionVec.at(i) };
+		for (size_t j{ 0ull }; j < regionVec.size(); ++j) {
+			const auto& o{ regionVec.at(j) };
+			if (j != i && here.id != o.id) {
+				if (here.color == o.color) {
+					if (color_errors[here.color].empty())
+						color_errors[here.color].emplace_back(here);
+					color_errors[here.color].emplace_back(o);
+				}
+				if (here.mapName == o.mapName) {
+					if (name_errors[here.mapName].empty())
+						name_errors[here.mapName].emplace_back(here);
+					name_errors[here.mapName].emplace_back(o);
+				}
+			}
+		}
+	}
+
+	if (color_errors.empty() && name_errors.empty())
+		return;
+
+	for (const auto& [color, regions] : color_errors)
+		std::cerr << term::get_error() << "Color '" << color << "' is assigned to multiple regions! " << regions << std::endl;
+	for (const auto& [name, regions] : name_errors)
+		std::cerr << term::get_error() << "Map Name '" << name << "' is assigned to multiple regions! " << regions << std::endl;
+
+	throw make_exception("One or more regions have identical mapping data, the generator cannot continue!");
 }
 
 int main(const int argc, char** argv)
@@ -92,7 +125,7 @@ int main(const int argc, char** argv)
 		file::MINI ini;
 
 		if (const auto& path{ myPath / "regions.ini" }; file::exists(path)) {
-			std::clog << "Reading region color data from '" << path.generic_string() << "'.\n";
+			std::clog << "Reading region config at '" << path.generic_string() << "'.\n";
 			ini.read(path);
 		}
 
@@ -100,7 +133,7 @@ int main(const int argc, char** argv)
 			if (!file::exists(it))
 				throw make_exception("Filepath '", it, "' doesn't exist!");
 			else {
-				std::clog << "Reading region color data from '" << it << "'.\n";
+				std::clog << "Reading region config at '" << it << "'.\n";
 				ini.read(it);
 			}
 		}
@@ -109,7 +142,9 @@ int main(const int argc, char** argv)
 			throw make_exception("Failed to retrieve any valid data from the provided INI config files!");
 
 		const auto& regionMap{ cfg::getRegions(ini) };
-		const ColorMap colormap{ buildColorMap(regionMap) };
+		ValidateRegionVec(regionMap);
+		std::cout << "Successfully validated the region config." << std::endl;
+		const ColorMap colormap{ regionMap };
 
 		if (const auto& fileArg{ args.typegetv_any<opt::Flag, opt::Option>('f', "file") }; fileArg.has_value()) {
 			std::filesystem::path path{ fileArg.value() };
@@ -202,6 +237,17 @@ int main(const int argc, char** argv)
 
 						vec.shrink_to_fit();
 
+						// check if all known regions were found in the map.
+						for (const auto& [color, region] : colormap) {
+							if (!regionStats.contains(region))
+								std::clog
+								<< term::get_warn(true, 10) << "No cells found for Region:\n"
+								<< indent(12) << "Editor ID:  '" << region.editorID << "'\n"
+								<< indent(12) << "Map Name:   '" << region.mapName << "'\n"
+								<< indent(12) << "Color:      '" << color << "'\n";
+						}
+
+						// get the target output location
 						std::filesystem::path outpath{ myPath };
 
 						if (const auto& outArg{ args.typegetv_any<opt::Flag, opt::Option>('o', "out") }; outArg.has_value())
@@ -211,18 +257,19 @@ int main(const int argc, char** argv)
 							throw make_exception("Invalid directory name: '", outpath.generic_string(), '\'');
 
 						std::string worldspaceName{ args.typegetv_any<opt::Flag, opt::Option>('w', "worldspace").value_or("worldspace") };
-
 						std::filesystem::path outRegionData{ outpath / (worldspaceName + ".region.txt") }, outMapData{ outpath / (worldspaceName + ".map.txt") };
+
+						// write the output region config file
 						if (ini.write(outRegionData))
 							std::clog << "Successfully saved region data to '" << color::setcolor::yellow << outRegionData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 						else std::clog << term::get_error() << "Failed to write region data to '" << color::setcolor::yellow << outRegionData.generic_string() << color::setcolor::reset << '\'' << std::endl;
-
+						// write the output region map file
 						if (file::write(outMapData, "[RegionAreas]\n", regionStats, "\n[HoldMap]\n", vec))
 							std::clog << "Successfully saved the lookup matrix to '" << color::setcolor::yellow << outMapData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 						else std::clog << term::get_error() << "Failed to write map data to '" << color::setcolor::yellow << outMapData.generic_string() << color::setcolor::reset << '\'' << std::endl;
 
-						if (display_each)
-							cv::destroyWindow(windowName);
+						// if a window is open, close it
+						if (display_each) cv::destroyWindow(windowName);
 					}
 					else if (args.checkopt("display")) {
 						std::clog << "Opening display..." << std::endl;
